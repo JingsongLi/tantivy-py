@@ -446,6 +446,45 @@ impl Searcher {
         })
     }
 
+    /// Reads u64 fast field values for the given DocAddresses.
+    ///
+    /// Args:
+    ///     field_name (str): The name of a u64 fast field.
+    ///     doc_addresses (list[DocAddress]): The list of doc addresses.
+    ///
+    /// Returns a list of u64 values, one per doc address.
+    #[pyo3(signature = (field_name, doc_addresses))]
+    fn fast_field_values(
+        &self,
+        field_name: &str,
+        doc_addresses: Vec<DocAddress>,
+    ) -> PyResult<Vec<u64>> {
+        let segment_readers = self.inner.segment_readers();
+        let mut results = Vec::with_capacity(doc_addresses.len());
+
+        for addr in &doc_addresses {
+            let seg_ord = addr.segment_ord as usize;
+            if seg_ord >= segment_readers.len() {
+                return Err(PyValueError::new_err(format!(
+                    "Segment ordinal {} out of range (num_segments={})",
+                    seg_ord,
+                    segment_readers.len()
+                )));
+            }
+            let segment_reader = &segment_readers[seg_ord];
+            let column = segment_reader
+                .fast_fields()
+                .u64(field_name)
+                .map_err(|e| PyValueError::new_err(format!(
+                    "Failed to get fast field '{}': {}", field_name, e
+                )))?
+                .first_or_default_col(0);
+            results.push(column.get_val(addr.doc));
+        }
+
+        Ok(results)
+    }
+
     fn __repr__(&self) -> PyResult<String> {
         Ok(format!(
             "Searcher(num_docs={}, num_segments={})",
